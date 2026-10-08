@@ -16,74 +16,85 @@ use esp_idf_svc::wifi::{
 
 
 
-const WIFI_SSID: &str = "HUAWEI-LL";
+const WIFI_SSID:&str="HUAWEI-LL";
 
-const WIFI_PASS: &str = "passworld";
+const WIFI_PASS:&str="passworld";
 
 
 
-fn wifi_config() -> Configuration
+fn wifi_config()->Configuration
 {
+
     Configuration::Client(
 
-        ClientConfiguration {
+        ClientConfiguration{
 
             ssid:
                 WIFI_SSID
-                    .try_into()
-                    .unwrap(),
+                .try_into()
+                .unwrap(),
 
             password:
                 WIFI_PASS
-                    .try_into()
-                    .unwrap(),
+                .try_into()
+                .unwrap(),
 
             auth_method:
                 AuthMethod::WPA2Personal,
 
+
             /*
-                不固定频道。
+                不固定频道
+
+                让AP决定
             */
+
             channel:
                 None,
 
+
             ..Default::default()
+
         }
 
     )
+
 }
 
 
 
+
+
 pub fn connect_wifi(
-    modem: esp_idf_hal::modem::Modem
+
+    modem:
+        esp_idf_hal::modem::Modem
+
 )
--> Result<std::net::Ipv4Addr>
+->Result<std::net::Ipv4Addr>
 {
-    /*
-        系统事件循环
-    */
+
+
     let sysloop =
         EspSystemEventLoop::take()?;
 
 
-    /*
-        NVS
-    */
     let nvs =
         EspDefaultNvsPartition::take()?;
 
 
-    /*
-        创建 WiFi
-    */
+
     let mut wifi =
         BlockingWifi::wrap(
 
             EspWifi::new(
+
                 modem,
+
                 sysloop.clone(),
+
                 Some(nvs),
+
             )?,
 
             sysloop,
@@ -93,204 +104,183 @@ pub fn connect_wifi(
 
 
     /*
-        ==================================================
-        第一次启动
-        ==================================================
+        start
     */
 
     wifi.start()?;
 
 
     log::info!(
-        "wifi driver started"
+        "wifi started"
     );
 
 
-    /*
-        驱动刚启动。
-
-        不需要等待 500ms / 800ms / 1500ms。
-
-        100ms 足够让调用时序更稳定。
-    */
 
     FreeRtos::delay_ms(
-        100
+        300
     );
 
 
-
-    /*
-        设置 WiFi 配置
-    */
 
     wifi.set_configuration(
         &wifi_config()
     )?;
 
 
-    log::info!(
-        "wifi configuration set"
-    );
-
-
 
     /*
-        ==================================================
         第一次连接
-        ==================================================
     */
 
-    log::info!(
-        "wifi connect attempt 1"
-    );
+
+    let mut connected=false;
 
 
-    match wifi.connect()
+    for attempt in 1..=3
     {
 
-        /*
-            ==============================================
-            第一次成功
-            ==============================================
-        */
 
-        Ok(_) =>
+        log::info!(
+            "wifi connect attempt {}",
+            attempt
+        );
+
+
+
+        match wifi.connect()
         {
-            log::info!(
-                "wifi connected on first attempt"
-            );
+
+
+            Ok(_)=>{
+
+
+                connected=true;
+
+
+                log::info!(
+                    "wifi connected"
+                );
+
+
+                break;
+
+            }
+
+
+
+            Err(e)=>{
+
+
+                log::warn!(
+                    "wifi failed {:?}",
+                    e
+                );
+
+
+
+                /*
+                    第一次失败
+
+                    重启驱动
+                */
+
+                if attempt==1
+                {
+
+
+                    log::warn!(
+                        "wifi driver reset"
+                    );
+
+
+
+                    let _=
+                        wifi.disconnect();
+
+
+
+                    let _=
+                        wifi.stop();
+
+
+
+                    FreeRtos::delay_ms(
+                        500
+                    );
+
+
+
+                    wifi.start()?;
+
+
+
+                    FreeRtos::delay_ms(
+                        500
+                    );
+
+
+
+                    wifi.set_configuration(
+                        &wifi_config()
+                    )?;
+
+
+                }
+                else
+                {
+
+
+                    let _=
+                        wifi.disconnect();
+
+
+
+                    FreeRtos::delay_ms(
+                        1000
+                    );
+
+                }
+
+
+            }
+
+
         }
 
 
-        /*
-            ==============================================
-            第一次失败
-            ==============================================
-        */
-
-        Err(e) =>
-        {
-            log::warn!(
-                "wifi first connect failed: {:?}",
-                e
-            );
+    }
 
 
-            /*
-                ==================================================
-                第一次失败直接重置 WiFi 驱动
-                ==================================================
-            */
 
-            log::warn!(
-                "reset wifi driver"
-            );
+    if !connected
+    {
 
+        return Err(
+            anyhow::anyhow!(
+                "wifi connect failed"
+            )
+        );
 
-            /*
-                清除连接状态
-            */
-
-            let _ =
-                wifi.disconnect();
-
-
-            /*
-                停止 WiFi 驱动
-            */
-
-            let _ =
-                wifi.stop();
-
-
-            /*
-                给 ESP-IDF WiFi task 时间
-                完成底层状态清理。
-
-                300ms 足够。
-            */
-
-            FreeRtos::delay_ms(
-                300
-            );
-
-
-            /*
-                重新启动 WiFi
-            */
-
-            wifi.start()?;
-
-
-            log::info!(
-                "wifi driver restarted"
-            );
-
-
-            /*
-                不需要等待 500~800ms。
-
-                100ms 足够。
-            */
-
-            FreeRtos::delay_ms(
-                100
-            );
-
-
-            /*
-                stop/start 后重新配置。
-
-                这一点非常重要。
-            */
-
-            wifi.set_configuration(
-                &wifi_config()
-            )?;
-
-
-            /*
-                ==================================================
-                第二次连接
-                ==================================================
-            */
-
-            log::info!(
-                "wifi connect attempt 2"
-            );
-
-
-            wifi.connect()?;
-
-
-            log::info!(
-                "wifi connected after driver reset"
-            );
-        }
     }
 
 
 
     /*
-        ==================================================
         DHCP
-        ==================================================
     */
+
 
     wifi.wait_netif_up()?;
 
 
-    /*
-        获取 IP
-    */
 
     let ip =
         wifi
-            .wifi()
-            .sta_netif()
-            .get_ip_info()?
-            .ip;
+        .wifi()
+        .sta_netif()
+        .get_ip_info()?
+        .ip;
+
 
 
     log::info!(
@@ -301,9 +291,9 @@ pub fn connect_wifi(
 
 
     /*
-        ==================================================
-        保持 WiFi 生命周期
-        ==================================================
+        保持wifi
+
+        当前架构需要
     */
 
     core::mem::forget(
@@ -312,4 +302,5 @@ pub fn connect_wifi(
 
 
     Ok(ip)
+
 }
