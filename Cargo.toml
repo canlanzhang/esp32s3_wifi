@@ -1,0 +1,36 @@
+[package]
+name = "esp32s3_wifi"
+version = "0.1.0"
+authors = ["mr"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.82"
+
+[[bin]]
+name = "esp32s3_wifi"
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true    # Symbols are nice, and they don't increase the size on Flash
+opt-level = "z"
+
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+esp-idf-hal = "0.47"
+esp-idf-sys = "0.38"
+esp-idf-svc = { version = "0.53", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
+# Remove `generic-queue-8` if you plan to use `embassy-time` WITH `embassy-executor`
+embassy-time = { version = "0.5", features = ["generic-queue-8"] }
+
+
+embedded-hal = "1"
+embedded-hal-bus = "0.2"
+sht31 = "0.1"
+
+[build-dependencies]
+embuild = "0.33.5"
