@@ -8,24 +8,32 @@ use crate::sht31::Sht31Sensor;
 
 pub fn register(server: &mut EspHttpServer<'static>, sht31: Sht31Sensor) -> Result<()> {
     server.fn_handler("/api/sht31", Method::Get, move |req| {
-        let (temp, hum) = sht31.read()?;
 
-        let temp_c = (temp - 32.0) * 5.0 / 9.0;
+    let (temp, hum) = sht31.read()?;
 
-        let json = format!(
-            r#"{{
+
+    let json = format!(
+        r#"{{
     "temperature":{:.2},
     "humidity":{:.2}
 }}"#,
-            temp_c, hum
-        );
+        temp,
+        hum
+    );
 
-        let mut response = req.into_ok_response()?;
 
-        response.write_all(json.as_bytes())?;
+    let mut response = req.into_response(
+        200,
+        Some("OK"),
+        &[("Content-Type","application/json")]
+    )?;
 
-        Ok::<(), anyhow::Error>(())
-    })?;
 
+    response.write_all(json.as_bytes())?;
+
+
+    Ok::<(), anyhow::Error>(())
+
+})?;
     Ok(())
 }
