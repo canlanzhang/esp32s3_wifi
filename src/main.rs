@@ -55,11 +55,7 @@ fn main() -> Result<()> {
     // HTTP
     // ==========================
 
-    let server = http::start_http_server(
-    led.clone(),
-    sht31.clone(),
-    ip.to_string()
-)?;
+    let _server = http::start_http_server(led.clone(), sht31.clone(), ip.to_string())?;
 
     info!("HTTP server started");
 
