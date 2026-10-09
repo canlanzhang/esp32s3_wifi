@@ -19,22 +19,29 @@ const WIFI_SSID: &str = "HUAWEI-LL";
 const WIFI_PASS: &str = "passworld";
 
 
+
 fn wifi_config() -> Configuration {
 
     Configuration::Client(
         ClientConfiguration {
 
-            ssid: WIFI_SSID.try_into().unwrap(),
+            ssid: WIFI_SSID
+                .try_into()
+                .unwrap(),
 
-            password: WIFI_PASS.try_into().unwrap(),
+            password: WIFI_PASS
+                .try_into()
+                .unwrap(),
 
             auth_method: AuthMethod::WPA2Personal,
 
             channel: None,
 
             ..Default::default()
+
         }
     )
+
 }
 
 
@@ -66,16 +73,22 @@ pub fn connect_wifi(
 
 
 
+    /*
+        启动 WiFi 驱动
+    */
+
     wifi.start()?;
 
 
-    log::info!("wifi driver start");
+    log::info!(
+        "wifi driver start"
+    );
 
 
     /*
-        给 PHY 稳定时间
+        等待 PHY 稳定
 
-        这里不要超过1秒
+        ESP32-S3 建议保留
     */
 
     FreeRtos::delay_ms(1000);
@@ -89,7 +102,7 @@ pub fn connect_wifi(
 
 
     /*
-        第一次连接
+        WiFi 连接重试
     */
 
     for retry in 1..=3 {
@@ -101,17 +114,21 @@ pub fn connect_wifi(
         );
 
 
+
         match wifi.connect()
         {
 
 
             Ok(_) => {
 
+
                 log::info!(
                     "wifi connected"
                 );
 
+
                 break;
+
             }
 
 
@@ -125,10 +142,12 @@ pub fn connect_wifi(
                 );
 
 
+
                 /*
                     清理 WiFi 状态
 
-                    关键部分
+                    防止 ESP32-S3
+                    第一次关联失败后卡死
                 */
 
 
@@ -142,11 +161,27 @@ pub fn connect_wifi(
 
 
 
-                FreeRtos::delay_ms(300);
+                /*
+                    等待 WiFi driver 完全停止
+                */
+
+                FreeRtos::delay_ms(1000);
 
 
+
+                /*
+                    重新启动 WiFi
+                */
 
                 wifi.start()?;
+
+
+
+                /*
+                    等待 driver ready
+                */
+
+                FreeRtos::delay_ms(300);
 
 
 
@@ -155,7 +190,12 @@ pub fn connect_wifi(
                 )?;
 
 
-                FreeRtos::delay_ms(200);
+
+                /*
+                    给扫描/关联准备时间
+                */
+
+                FreeRtos::delay_ms(500);
 
 
             }
@@ -163,17 +203,25 @@ pub fn connect_wifi(
         }
 
 
+
         if retry == 3 {
+
 
             anyhow::bail!(
                 "wifi connect failed"
             );
 
+
         }
+
 
     }
 
 
+
+    /*
+        等待 DHCP 获取 IP
+    */
 
     wifi.wait_netif_up()?;
 
@@ -196,7 +244,9 @@ pub fn connect_wifi(
 
 
     /*
-        保留wifi生命周期
+        保持 WiFi 生命周期
+
+        不允许 Drop
     */
 
     core::mem::forget(wifi);
