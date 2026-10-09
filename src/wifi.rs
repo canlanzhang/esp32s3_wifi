@@ -16,13 +16,13 @@ use esp_idf_svc::wifi::{
 
 
 
-const WIFI_SSID:&str="HUAWEI-LL";
+const WIFI_SSID: &str = "HUAWEI-LL";
 
-const WIFI_PASS:&str="passworld";
+const WIFI_PASS: &str = "passworld";
 
 
 
-fn wifi_config()->Configuration
+fn wifi_config() -> Configuration
 {
 
     Configuration::Client(
@@ -42,16 +42,8 @@ fn wifi_config()->Configuration
             auth_method:
                 AuthMethod::WPA2Personal,
 
-
-            /*
-                不固定频道
-
-                让AP决定
-            */
-
             channel:
                 None,
-
 
             ..Default::default()
 
@@ -64,14 +56,13 @@ fn wifi_config()->Configuration
 
 
 
-
 pub fn connect_wifi(
 
     modem:
         esp_idf_hal::modem::Modem
 
 )
-->Result<std::net::Ipv4Addr>
+-> Result<std::net::Ipv4Addr>
 {
 
 
@@ -84,7 +75,9 @@ pub fn connect_wifi(
 
 
 
+
     let mut wifi =
+
         BlockingWifi::wrap(
 
             EspWifi::new(
@@ -103,18 +96,19 @@ pub fn connect_wifi(
 
 
 
-    /*
-        start
-    */
 
     wifi.start()?;
 
 
     log::info!(
-        "wifi started"
+        "wifi driver start"
     );
 
 
+
+    /*
+        给 RF 初始化时间
+    */
 
     FreeRtos::delay_ms(
         300
@@ -128,140 +122,90 @@ pub fn connect_wifi(
 
 
 
+
     /*
         第一次连接
     */
 
 
-    let mut connected=false;
+    log::info!(
+        "wifi connect try 1"
+    );
 
 
-    for attempt in 1..=3
+    match wifi.connect()
     {
 
+        Ok(_)=>{
 
-        log::info!(
-            "wifi connect attempt {}",
-            attempt
-        );
-
-
-
-        match wifi.connect()
-        {
-
-
-            Ok(_)=>{
-
-
-                connected=true;
-
-
-                log::info!(
-                    "wifi connected"
-                );
-
-
-                break;
-
-            }
-
-
-
-            Err(e)=>{
-
-
-                log::warn!(
-                    "wifi failed {:?}",
-                    e
-                );
-
-
-
-                /*
-                    第一次失败
-
-                    重启驱动
-                */
-
-                if attempt==1
-                {
-
-
-                    log::warn!(
-                        "wifi driver reset"
-                    );
-
-
-
-                    let _=
-                        wifi.disconnect();
-
-
-
-                    let _=
-                        wifi.stop();
-
-
-
-                    FreeRtos::delay_ms(
-                        500
-                    );
-
-
-
-                    wifi.start()?;
-
-
-
-                    FreeRtos::delay_ms(
-                        500
-                    );
-
-
-
-                    wifi.set_configuration(
-                        &wifi_config()
-                    )?;
-
-
-                }
-                else
-                {
-
-
-                    let _=
-                        wifi.disconnect();
-
-
-
-                    FreeRtos::delay_ms(
-                        1000
-                    );
-
-                }
-
-
-            }
-
+            log::info!(
+                "wifi connected"
+            );
 
         }
 
 
+        Err(e)=>{
+
+            log::warn!(
+                "first connect fail {:?}",
+                e
+            );
+
+
+            /*
+                ESP32-S3 常见启动竞态
+                重启 driver
+            */
+
+
+            let _ =
+                wifi.disconnect();
+
+
+            let _ =
+                wifi.stop();
+
+
+
+            FreeRtos::delay_ms(
+                300
+            );
+
+
+
+            wifi.start()?;
+
+
+
+            FreeRtos::delay_ms(
+                300
+            );
+
+
+
+            wifi.set_configuration(
+                &wifi_config()
+            )?;
+
+
+
+            log::info!(
+                "wifi connect try 2"
+            );
+
+
+            wifi.connect()?;
+
+
+            log::info!(
+                "wifi connected after restart"
+            );
+
+        }
+
     }
 
-
-
-    if !connected
-    {
-
-        return Err(
-            anyhow::anyhow!(
-                "wifi connect failed"
-            )
-        );
-
-    }
 
 
 
@@ -274,7 +218,9 @@ pub fn connect_wifi(
 
 
 
+
     let ip =
+
         wifi
         .wifi()
         .sta_netif()
@@ -291,14 +237,13 @@ pub fn connect_wifi(
 
 
     /*
-        保持wifi
-
-        当前架构需要
+        保留生命周期
     */
 
     core::mem::forget(
         wifi
     );
+
 
 
     Ok(ip)
