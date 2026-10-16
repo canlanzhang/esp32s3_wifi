@@ -2,70 +2,190 @@ use anyhow::Result;
 
 use esp_idf_hal::io::Write;
 
-use esp_idf_svc::http::server::{EspHttpServer, Method};
+use esp_idf_svc::http::server::{
+    EspHttpServer,
+    Method,
+};
 
 use crate::led::Led;
 
-pub fn register(server: &mut EspHttpServer<'static>, led: Led) -> Result<()> {
+pub fn register(
+    server: &mut EspHttpServer<'static>,
+    led: Led,
+) -> Result<()> {
     // ==========================
-    // LED ON
-    // ==========================
-
-    {
-        let led = led.clone();
-
-        server.fn_handler("/led/on", Method::Get, move |req| {
-            led.on()?;
-
-            let mut response = req.into_ok_response()?;
-
-            response.write_all(b"LED ON")?;
-
-            Ok::<(), anyhow::Error>(())
-        })?;
-    }
-
-    // ==========================
-    // LED OFF
+    // LED API
+    //
+    // /api/led
+    //              查询状态
+    //
+    // /api/led?state=on
+    //              开灯
+    //
+    // /api/led?state=off
+    //              关灯
+    //
+    // /api/led?state=toggle
+    //              切换
     // ==========================
 
     {
         let led = led.clone();
 
-        server.fn_handler("/led/off", Method::Get, move |req| {
-            led.off()?;
+        server.fn_handler(
+            "/api/led",
+            Method::Get,
+            move |req| {
+                // ==========================
+                // 获取 URL
+                // ==========================
 
-            let mut response = req.into_ok_response()?;
+                let uri = req.uri();
 
-            response.write_all(b"LED OFF")?;
+                // ==========================
+                // 解析 state
+                // ==========================
 
-            Ok::<(), anyhow::Error>(())
-        })?;
-    }
+                let mut state: Option<&str> = None;
 
-    // ==========================
-    // LED STATUS
-    // ==========================
+                if let Some(pos) = uri.find('?') {
+                    let query = &uri[pos + 1..];
 
-    {
-        let led = led.clone();
+                    for param in query.split('&') {
+                        let mut parts =
+                            param.splitn(2, '=');
 
-        server.fn_handler("/api/led", Method::Get, move |req| {
-            let status = if led.is_on() { "on" } else { "off" };
+                        let key =
+                            parts.next().unwrap_or("");
 
-            let json = format!(
-                r#"{{
+                        let value =
+                            parts.next().unwrap_or("");
+
+                        if key == "state" {
+                            state = Some(value);
+                            break;
+                        }
+                    }
+                }
+
+                // ==========================
+                // 执行 LED 操作
+                // ==========================
+
+                match state {
+                    // --------------------------
+                    // ON
+                    // --------------------------
+
+                    Some("on") => {
+                        led.on()?;
+                    }
+
+                    // --------------------------
+                    // OFF
+                    // --------------------------
+
+                    Some("off") => {
+                        led.off()?;
+                    }
+
+                    // --------------------------
+                    // TOGGLE
+                    // --------------------------
+
+                    Some("toggle") => {
+                        if led.is_on() {
+                            led.off()?;
+                        } else {
+                            led.on()?;
+                        }
+                    }
+
+                    // --------------------------
+                    // 未知操作
+                    // --------------------------
+
+                    Some(_) => {
+                        let json = r#"{
+    "success":false,
+    "error":"invalid_state",
+    "message":"state must be on, off or toggle"
+}"#;
+
+                        let mut response =
+                            req.into_response(
+                                400,
+                                Some("Bad Request"),
+                                &[
+                                    (
+                                        "Content-Type",
+                                        "application/json",
+                                    ),
+                                ],
+                            )?;
+
+                        response.write_all(
+                            json.as_bytes()
+                        )?;
+
+                        return Ok::<(), anyhow::Error>(());
+                    }
+
+                    // --------------------------
+                    // 没有 state
+                    //
+                    // 只查询状态
+                    // --------------------------
+
+                    None => {}
+                }
+
+                // ==========================
+                // 获取当前状态
+                // ==========================
+
+                let status =
+                    if led.is_on() {
+                        "on"
+                    } else {
+                        "off"
+                    };
+
+                // ==========================
+                // 返回 JSON
+                // ==========================
+
+                let json = format!(
+                    r#"{{
+    "success":true,
     "led":"{}"
 }}"#,
-                status
-            );
+                    status
+                );
 
-            let mut response = req.into_ok_response()?;
+                // ==========================
+                // HTTP Response
+                // ==========================
 
-            response.write_all(json.as_bytes())?;
+                let mut response =
+                    req.into_response(
+                        200,
+                        Some("OK"),
+                        &[
+                            (
+                                "Content-Type",
+                                "application/json",
+                            ),
+                        ],
+                    )?;
 
-            Ok::<(), anyhow::Error>(())
-        })?;
+                response.write_all(
+                    json.as_bytes()
+                )?;
+
+                Ok::<(), anyhow::Error>(())
+            },
+        )?;
     }
 
     Ok(())
