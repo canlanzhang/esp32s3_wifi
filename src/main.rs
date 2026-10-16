@@ -1,5 +1,6 @@
 mod api;
 mod http;
+mod ir;
 mod led;
 mod sht31;
 mod wifi;
@@ -27,7 +28,9 @@ fn main() -> Result<()> {
     // LED GPIO48
     // ==========================
 
-    let led = led::Led::new(PinDriver::output(peripherals.pins.gpio48)?);
+    let led = led::Led::new(
+        PinDriver::output(peripherals.pins.gpio48)?
+    );
 
     // ==========================
     // SHT31 I2C
@@ -46,6 +49,14 @@ fn main() -> Result<()> {
     let sht31 = sht31::Sht31Sensor::new(i2c)?;
 
     // ==========================
+    // 红外接收
+    //
+    // V1222 OUT → GPIO2
+    // ==========================
+
+    ir::start(peripherals.pins.gpio2)?;
+
+    // ==========================
     // WIFI
     // ==========================
 
@@ -55,7 +66,12 @@ fn main() -> Result<()> {
     // HTTP
     // ==========================
 
-    let _server = http::start_http_server(led.clone(), sht31.clone(), ip.to_string())?;
+    let _server =
+        http::start_http_server(
+            led.clone(),
+            sht31.clone(),
+            ip.to_string(),
+        )?;
 
     info!("HTTP server started");
 
