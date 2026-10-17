@@ -4,9 +4,9 @@ use esp_idf_hal::io::Write;
 
 use esp_idf_svc::http::server::{EspHttpServer, Method};
 
-use crate::led::Led;
+use crate::board_led::Board_Led;
 
-pub fn register(server: &mut EspHttpServer<'static>, led: Led) -> Result<()> {
+pub fn register(server: &mut EspHttpServer<'static>, led: Board_Led) -> Result<()> {
     // ==========================
     // LED API
     //

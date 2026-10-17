@@ -1,7 +1,7 @@
 mod api;
 mod http;
 mod ir;
-mod led;
+mod board_led;
 mod sht31;
 mod wifi;
 
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     // LED GPIO48
     // ==========================
 
-    let led = led::Led::new(
+    let led = board_led::Board_Led::new(
         PinDriver::output(peripherals.pins.gpio48)?
     );
 

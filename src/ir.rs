@@ -1,27 +1,24 @@
-use anyhow::Result;
 
+use anyhow::Result;
 use esp_idf_hal::gpio::InputPin;
 use esp_idf_hal::rmt::{
     config::{ReceiveConfig, RxChannelConfig},
-    RxChannelDriver,
-    Symbol,
+    RxChannelDriver, Symbol,
 };
 use esp_idf_hal::units::Hertz;
-
 use std::time::Duration;
 
-/// 红外接收模块 OUT 接 GPIO2
 pub const IR_GPIO: u8 = 2;
 
-/// RMT 分辨率：1 MHz
-///
-/// 1 tick = 1 us
 const RMT_RESOLUTION: Hertz = Hertz(1_000_000);
-
-/// 一帧最多保存 200 个 Symbol
 const RAW_BUFFER_SIZE: usize = 200;
 
-/// 启动红外接收任务
+// NEC 数据位的高电平时长范围，单位 us
+const ZERO_MIN: u64 = 350;
+const ZERO_MAX: u64 = 900;
+const ONE_MIN: u64 = 1200;
+const ONE_MAX: u64 = 2000;
+
 pub fn start(pin: impl InputPin + 'static) -> Result<()> {
     std::thread::Builder::new()
         .name("ir_rx".into())
@@ -33,109 +30,146 @@ pub fn start(pin: impl InputPin + 'static) -> Result<()> {
         })?;
 
     log::info!("IR receiver task started on GPIO{}", IR_GPIO);
-
     Ok(())
 }
 
-/// 红外接收循环
 fn receive_loop(pin: impl InputPin) -> Result<()> {
-    // ==========================
-    // 创建 RMT RX
-    // ==========================
-
     let mut rx = RxChannelDriver::new(
         pin,
         &RxChannelConfig {
-            // 1 MHz
-            //
-            // 1 tick = 1us
             resolution: RMT_RESOLUTION,
-
             ..Default::default()
         },
     )?;
 
     log::info!(
-        "IR receiver ready on GPIO{}, resolution={} Hz",
-        IR_GPIO,
-        1_000_000
+        "IR receiver ready on GPIO{}, resolution=1000000 Hz",
+        IR_GPIO
     );
 
-    // ==========================
-    // 接收配置
-    // ==========================
-
     let rx_config = ReceiveConfig {
-        // 不过滤短脉冲
         signal_range_min: Duration::ZERO,
-
-        // 3ms
-        //
-        // 注意：
-        // ESP-IDF RMT RX 在当前配置下最大约 3.2767ms。
-        //
-        // 3ms 足够覆盖绝大多数红外数据脉冲：
-        // 560us
-        // 1690us
-        //
-        // 但是不能直接用 9ms 作为一个 pulse。
         signal_range_max: Duration::from_millis(3),
-
-        // 1 秒等待
         timeout: None,
-
         ..Default::default()
     };
-
-    // ==========================
-    // 开始接收
-    // ==========================
 
     loop {
         let mut buffer = [Symbol::default(); RAW_BUFFER_SIZE];
 
         let count = match rx.receive(&mut buffer, &rx_config) {
             Ok(count) => count,
-
             Err(e) => {
                 log::warn!("IR receive error: {:?}", e);
                 continue;
             }
         };
 
+        // 忽略空帧和明显不完整的帧
         if count == 0 {
             continue;
         }
 
-        log::info!("========== IR FRAME ==========");
+        let symbols = &buffer[..count];
 
-        for (i, symbol) in buffer[..count].iter().enumerate() {
+        let has_signal = symbols.iter().any(|symbol| {
+            symbol.level0().ticks.duration(RMT_RESOLUTION).as_micros() > 0
+                || symbol.level1().ticks.duration(RMT_RESOLUTION).as_micros() > 0
+        });
+
+        if !has_signal {
+            continue;
+        }
+
+        log::info!("========== IR FRAME: {} symbols ==========", count);
+
+        // 打印完整波形，用于确认实际电平顺序和时序
+        for (i, symbol) in symbols.iter().enumerate() {
             let p0 = symbol.level0();
             let p1 = symbol.level1();
 
-            // PulseTicks 内部字段是 private，
-            // 必须使用 ticks()。
-            let ticks0 = p0.ticks.ticks();
-            let ticks1 = p1.ticks.ticks();
+            let us0 = p0.ticks.duration(RMT_RESOLUTION).as_micros();
+            let us1 = p1.ticks.duration(RMT_RESOLUTION).as_micros();
 
-            let duration0 = p0.ticks.duration(RMT_RESOLUTION);
-            let duration1 = p1.ticks.duration(RMT_RESOLUTION);
-
-log::info!(
-    "#{:03}: {:?} {:>6}us ({:>6} ticks) | {:?} {:>6}us ({:>6} ticks)",
-    i,
-    p0.pin_state,
-    duration0.as_micros(),
-    ticks0,
-    p1.pin_state,
-    duration1.as_micros(),
-    ticks1,
-);
+            log::info!(
+                "#{:03}: {:?} {:>5}us ({} ticks) | {:?} {:>5}us ({} ticks)",
+                i,
+                p0.pin_state,
+                us0,
+                p0.ticks.ticks(),
+                p1.pin_state,
+                us1,
+                p1.ticks.ticks(),
+            );
         }
 
-        log::info!(
-            "========== IR FRAME END: {} symbols ==========",
-            count
-        );
+        // 尝试解析 NEC 32 位数据
+        match decode_nec(symbols) {
+            Some((address, command)) => {
+                log::info!(
+                    "IR decoded: protocol=NEC address=0x{:02X} command=0x{:02X}",
+                    address,
+                    command
+                );
+            }
+            None => {
+                log::warn!("IR decode failed; raw waveform printed above");
+            }
+        }
+
+        log::info!("========== IR FRAME END ==========");
     }
+}
+
+/// 根据每个 Symbol 的 level0 时长，尝试解析 NEC 数据。
+/// 只有地址反码和命令反码均通过校验，才返回结果。
+
+fn decode_nec(symbols: &[Symbol]) -> Option<(u8, u8)> {
+    // NEC 数据至少需要 32 个 Symbol
+    if symbols.len() < 32 {
+        return None;
+    }
+
+    let mut data: u32 = 0;
+
+    for (i, symbol) in symbols.iter().take(32).enumerate() {
+        let p0 = symbol.level0();
+        let p1 = symbol.level1();
+
+        let low_us = p0.ticks.duration(RMT_RESOLUTION).as_micros() as u64;
+        let high_us = p1.ticks.duration(RMT_RESOLUTION).as_micros() as u64;
+
+        // NEC 每一位通常包含约 560us 的低电平
+        if !(350..=900).contains(&low_us) {
+            return None;
+        }
+
+        // 读取高电平时长来判断数据位
+        let bit = if (350..=900).contains(&high_us) {
+            0u32
+        } else if (1200..=2000).contains(&high_us) {
+            1u32
+        } else {
+            return None;
+        };
+
+        // NEC 按最低有效位优先传输
+        data |= bit << i;
+    }
+
+    let address = (data & 0xFF) as u8;
+    let address_inverse = ((data >> 8) & 0xFF) as u8;
+    let command = ((data >> 16) & 0xFF) as u8;
+    let command_inverse = ((data >> 24) & 0xFF) as u8;
+
+    // 校验地址反码与命令反码
+    if address ^ address_inverse != 0xFF {
+        return None;
+    }
+
+    if command ^ command_inverse != 0xFF {
+        return None;
+    }
+
+    Some((address, command))
 }

@@ -5,13 +5,13 @@ use std::sync::{Arc, Mutex};
 use esp_idf_hal::gpio::{Output, PinDriver};
 
 #[derive(Clone)]
-pub struct Led {
+pub struct Board_Led {
     pin: Arc<Mutex<PinDriver<'static, Output>>>,
 
     state: Arc<Mutex<bool>>,
 }
 
-impl Led {
+impl Board_Led {
     pub fn new(pin: PinDriver<'static, Output>) -> Self {
         let pin = Arc::new(Mutex::new(pin));
 

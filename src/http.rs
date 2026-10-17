@@ -2,12 +2,12 @@ use anyhow::Result;
 
 use esp_idf_svc::http::server::{Configuration, EspHttpServer};
 
-use crate::{led::Led, sht31::Sht31Sensor};
+use crate::{board_led::Board_Led, sht31::Sht31Sensor};
 
 use crate::api;
 
 pub fn start_http_server(
-    led: Led,
+    led: Board_Led,
 
     sht31: Sht31Sensor,
 
@@ -17,7 +17,7 @@ pub fn start_http_server(
 
     api::status::register(&mut server, led.clone(), ip)?;
 
-    api::led::register(&mut server, led)?;
+    api::board_led::register(&mut server, led)?;
 
     api::sensor::register(&mut server, sht31)?;
 

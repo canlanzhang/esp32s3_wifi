@@ -4,9 +4,9 @@ use esp_idf_hal::io::Write;
 
 use esp_idf_svc::http::server::{EspHttpServer, Method};
 
-use crate::led::Led;
+use crate::board_led::Board_Led;
 
-pub fn register(server: &mut EspHttpServer<'static>, led: Led, ip: String) -> Result<()> {
+pub fn register(server: &mut EspHttpServer<'static>, led: Board_Led, ip: String) -> Result<()> {
     server.fn_handler("/api/status", Method::Get, move |req| {
         let status = if led.is_on() { "on" } else { "off" };
 
