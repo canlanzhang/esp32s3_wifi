@@ -1,6 +1,6 @@
 mod api;
 mod http;
-mod ir;
+mod ir_rx;
 mod board_led;
 mod sht31;
 mod wifi;
@@ -51,7 +51,7 @@ ir_tx.send_nec(0x80, 0x01)?;
     let sht31 = sht31::Sht31Sensor::new(i2c)?;
 
     // 红外接收：GPIO2
-    ir::start(peripherals.pins.gpio2, ir_led.clone())?;
+    ir_rx::start(peripherals.pins.gpio2, ir_led.clone())?;
 
     // 连接 Wi-Fi
     let ip = wifi::connect_wifi(peripherals.modem)?;
