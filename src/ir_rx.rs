@@ -54,7 +54,7 @@ fn receive_loop(pin: impl InputPin, led: IrLed) -> Result<()> {
 
     let rx_config = ReceiveConfig {
         signal_range_min: Duration::ZERO,
-        signal_range_max: Duration::from_millis(3),
+        signal_range_max: Duration::from_millis(15),
         timeout: None,
         ..Default::default()
     };
