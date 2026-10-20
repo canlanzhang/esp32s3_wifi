@@ -18,7 +18,6 @@ use esp_idf_hal::rmt::{
     TxChannelDriver,
 };
 use esp_idf_hal::units::Hertz;
-use esp_idf_hal::delay::FreeRtos;
 
 pub const IR_TX_GPIO: u8 = 1;
 
@@ -82,8 +81,6 @@ impl<'d> IrTx<'d> {
         address: u8,
         command: u8,
     ) -> Result<()> {
-        // 先等待 5 秒
-    FreeRtos::delay_ms(5000);
         let mut symbols: Vec<Symbol> = Vec::with_capacity(34);
 
         // NEC 引导码：9 ms mark + 4.5 ms space
@@ -141,29 +138,13 @@ impl<'d> IrTx<'d> {
             command
         );
 
-log::info!("IR TX: waiting 5 seconds...");
-FreeRtos::delay_ms(5000);
-
-for i in 1..=5 {
-    log::info!("IR TX: sending {}/5", i);
-
-    unsafe {
-        self.tx.start_send(
-            &mut self.encoder,
-            &symbols,
-            &TransmitConfig::default(),
-        )?;
-    }
-
-    // 等待本次发送完成，避免下一次发送过早开始
-    self.tx.wait_all_done(Some(std::time::Duration::from_millis(1000)))?;
-
-    if i < 5 {
-        FreeRtos::delay_ms(5000);
-    }
-}
-
-log::info!("IR TX: all 5 transmissions completed");
+        unsafe {
+            self.tx.start_send(
+                &mut self.encoder,
+                &symbols,
+                &TransmitConfig::default(),
+            )?;
+        }
 
         Ok(())
     }
