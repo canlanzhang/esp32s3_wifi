@@ -159,37 +159,51 @@ fn receive_loop(pin: impl InputPin, led: IrLed) -> Result<()> {
     }
 }
 
-/// 根据 RMT Symbol 的电平时长解析 NEC 32 位数据。
-/// 地址反码和命令反码都校验通过后才返回结果。
+/// 根据 RMT Symbol 的电平时长解析标准 NEC 32 位数据。
+/// 第 0 个符号是引导码，接下来 32 个符号才是数据位。
+/// 地址反码和命令反码校验通过后才返回结果。
 fn decode_nec(symbols: &[Symbol]) -> Option<(u8, u8)> {
-    if symbols.len() < 32 {
+    // 1 个引导码 + 32 个数据位，至少需要 33 个符号。
+    if symbols.len() < 33 {
+        return None;
+    }
+
+    // 检查 NEC 引导码：约 9ms 低电平 + 4.5ms 高电平。
+    let header = &symbols[0];
+    let header_low =
+        header.level0().ticks.duration(RMT_RESOLUTION).as_micros() as u64;
+    let header_high =
+        header.level1().ticks.duration(RMT_RESOLUTION).as_micros() as u64;
+
+    if !(8000..=10000).contains(&header_low)
+        || !(3500..=5500).contains(&header_high)
+    {
         return None;
     }
 
     let mut data: u32 = 0;
 
-    for (i, symbol) in symbols.iter().take(32).enumerate() {
-        let p0 = symbol.level0();
-        let p1 = symbol.level1();
+    // 跳过第 0 个引导码，只读取后面的 32 个数据位。
+    for (i, symbol) in symbols[1..33].iter().enumerate() {
+        let low_us =
+            symbol.level0().ticks.duration(RMT_RESOLUTION).as_micros() as u64;
+        let high_us =
+            symbol.level1().ticks.duration(RMT_RESOLUTION).as_micros() as u64;
 
-        let low_us = p0.ticks.duration(RMT_RESOLUTION).as_micros() as u64;
-        let high_us = p1.ticks.duration(RMT_RESOLUTION).as_micros() as u64;
-
-        // NEC 每一位通常包含约 560us 的低电平
-        if !(ZERO_MIN..=ZERO_MAX).contains(&low_us) {
+        // NEC 数据位的低电平通常约 560us。
+        if !(350..=900).contains(&low_us) {
             return None;
         }
 
-        // 根据高电平时长判断 0 或 1
-        let bit = if (ZERO_MIN..=ZERO_MAX).contains(&high_us) {
+        let bit = if (350..=900).contains(&high_us) {
             0u32
-        } else if (ONE_MIN..=ONE_MAX).contains(&high_us) {
+        } else if (1200..=2000).contains(&high_us) {
             1u32
         } else {
             return None;
         };
 
-        // NEC 数据按最低有效位优先传输
+        // NEC 按最低有效位优先传输。
         data |= bit << i;
     }
 
@@ -198,7 +212,6 @@ fn decode_nec(symbols: &[Symbol]) -> Option<(u8, u8)> {
     let command = ((data >> 16) & 0xFF) as u8;
     let command_inverse = ((data >> 24) & 0xFF) as u8;
 
-    // 校验地址反码与命令反码
     if address ^ address_inverse != 0xFF {
         return None;
     }
