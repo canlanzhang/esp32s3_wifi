@@ -212,6 +212,15 @@ fn decode_nec(symbols: &[Symbol]) -> Option<(u8, u8)> {
     let command = ((data >> 16) & 0xFF) as u8;
     let command_inverse = ((data >> 24) & 0xFF) as u8;
 
+    log::info!(
+    "NEC raw data=0x{:08X}, bytes=[{:02X}, {:02X}, {:02X}, {:02X}]",
+    data,
+    address,
+    address_inverse,
+    command,
+    command_inverse
+);
+
     if address ^ address_inverse != 0xFF {
         return None;
     }
