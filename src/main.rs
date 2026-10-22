@@ -57,8 +57,8 @@ fn main() -> Result<()> {
     // ========================================
     let i2c = I2cDriver::new(
         peripherals.i2c0,
-        peripherals.pins.gpio8,
-        peripherals.pins.gpio9,
+        peripherals.pins.gpio41,
+        peripherals.pins.gpio42,
         &I2cConfig::new(),
     )?;
 
