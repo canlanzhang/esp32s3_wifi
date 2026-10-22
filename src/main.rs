@@ -28,10 +28,10 @@ fn main() -> Result<()> {
     let peripherals = Peripherals::take()?;
 
     // ========================================
-    // 红外发射器：GPIO1
+    // 红外发射器：GPIO40
     // 由主线程持有，避免跨线程共享 RMT Encoder
     // ========================================
-    let mut ir_tx = ir_tx::IrTx::new(peripherals.pins.gpio1)?;
+    let mut ir_tx = ir_tx::IrTx::new(peripherals.pins.gpio40)?;
 
     // 创建红外命令通道
     let (ir_sender, ir_receiver) = ir_control::channel();
@@ -42,6 +42,14 @@ fn main() -> Result<()> {
     let ir_led = ir_led::IrLed::new(
         PinDriver::output(peripherals.pins.gpio17)?,
     );
+
+    // ========================================
+    // 启动红外接收任务：GPIO39
+    // ========================================
+    ir_rx::start(
+        peripherals.pins.gpio39,
+        ir_led.clone(),
+    )?;
 
     // ========================================
     // 板载 LED：GPIO48
@@ -63,14 +71,6 @@ fn main() -> Result<()> {
     )?;
 
     let sht31 = sht31::Sht31Sensor::new(i2c)?;
-
-    // ========================================
-    // 启动红外接收任务：GPIO2
-    // ========================================
-    ir_rx::start(
-        peripherals.pins.gpio2,
-        ir_led.clone(),
-    )?;
 
     // ========================================
     // 连接 Wi-Fi
